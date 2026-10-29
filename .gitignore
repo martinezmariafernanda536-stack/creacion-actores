@@ -1,0 +1,12 @@
+# Credenciales: NUNCA subir a GitHub
+.streamlit/secrets.toml
+*.json
+!data/catalogos/*.json
+
+# Datos de prueba local y archivos de trabajo
+datos_local/
+*.xlsx
+!plantilla/plantilla_hermes_base.xlsx
+__pycache__/
+.venv/
+.DS_Store

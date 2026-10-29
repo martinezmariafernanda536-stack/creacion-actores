@@ -1,0 +1,248 @@
+continente,pais
+Africa,ANGOLA
+Africa,ARGELIA
+Africa,BENIN
+Africa,BOTSWANA
+Africa,BURKINA FASO
+Africa,BURUNDI
+Africa,CABO VERDE
+Africa,CAMERÚN
+Africa,CHAD
+Africa,COMORAS
+Africa,CONGO
+Africa,COSTA DE MARFIL
+Africa,DJIBOUTI
+Africa,EGIPTO
+Africa,ERITREA
+Africa,ETIOPIA
+Africa,GABÓN
+Africa,GAMBIA
+Africa,GHANA
+Africa,GUINEA
+Africa,GUINEA BISSAU
+Africa,GUINEA ECUATORIAL
+Africa,KENIA
+Africa,LESOTHO
+Africa,LIBERIA
+Africa,LIBIA
+Africa,MADAGASCAR
+Africa,MALAWI
+Africa,MALI
+Africa,MARRUECOS
+Africa,MAURICIO
+Africa,MAURITANIA
+Africa,MAYOTTE
+Africa,MOZAMBIQUE
+Africa,NAMIBIA
+Africa,NIGER
+Africa,NIGERIA
+Africa,OTROS PAISES O TERRITORIOS DE AFRICA
+Africa,REPUBLICA CENTROAFRICANA
+Africa,REPÚBLICA DEMOCRATICA DEL CONGO
+Africa,REUNIÓN
+Africa,RUANDA
+Africa,SAHARA OCCIDENTAL
+Africa,SANTA HELENA
+Africa,SANTO TOMÉ Y PRÍNCIPE
+Africa,SENEGAL
+Africa,SEYCHELLES
+Africa,SIERRA LEONA
+Africa,SOMALIA
+Africa,SUDÁFRICA
+Africa,SUDÁN
+Africa,SWAZILANDIA
+Africa,TANZANIA
+Africa,TOGO
+Africa,TUNEZ
+Africa,UGANDA
+Africa,ZAMBIA
+Africa,ZIMBABWE
+América del Norte,CANADA
+América del Norte,ESTADOS UNIDOS DE AMÉRICA
+América del Norte,GROENLANDIA
+América del Norte,MÉXICO
+América del Norte,OTROS PAISES O TERRITORIOS DE AMERICA DEL NORTE
+América del Norte,SAN PEDRO Y MIQUELÓN
+Asia,AFGANISTÁN
+Asia,ARABIA SAUDÍ
+Asia,AZERBAIYAN
+Asia,BAHREIN
+Asia,BANGLADESH
+Asia,BHUTÁN
+Asia,BRUNEI
+Asia,CAMBOYA
+Asia,CHINA
+Asia,COREA
+Asia,COREA DEL NORTE
+Asia,EMIRATOS ARABES UNIDOS
+Asia,FILIPINAS
+Asia,HONG KONG
+Asia,INDIA
+Asia,INDONESIA
+Asia,IRAN
+Asia,IRAQ
+Asia,ISRAEL
+Asia,JAPÓN
+Asia,JORDANIA
+Asia,KAZAJSTAN
+Asia,KIRGUISTAN
+Asia,KUWAIT
+Asia,LAOS
+Asia,LIBANO
+Asia,MACAO
+Asia,MALASIA
+Asia,MALDIVAS
+Asia,MONGOLIA
+Asia,MYANMAR
+Asia,NEPAL
+Asia,OMÁN
+Asia,OTROS PAISES O TERRITORIOS DE ASIA
+Asia,PAKISTÁN
+Asia,PALESTINA
+Asia,QATAR
+Asia,SINGAPUR
+Asia,SIRIA
+Asia,SRI LANKA
+Asia,TADYIKISTAN
+Asia,TAILANDIA
+Asia,TAIWÁN
+Asia,TURKMENISTAN
+Asia,UZBEKISTAN
+Asia,VIETNAM
+Asia,YEMEN
+Centro América y Caribe,ANGUILLA
+Centro América y Caribe,ANTIGUA Y BARBUDA
+Centro América y Caribe,ANTILLAS HOLANDESAS
+Centro América y Caribe,ARUBA
+Centro América y Caribe,BAHAMAS
+Centro América y Caribe,BARBADOS
+Centro América y Caribe,BELICE
+Centro América y Caribe,BERMUDAS
+Centro América y Caribe,COSTA RICA
+Centro América y Caribe,CUBA
+Centro América y Caribe,DOMINICA
+Centro América y Caribe,EL SALVADOR
+Centro América y Caribe,GRANADA
+Centro América y Caribe,GUADALUPE
+Centro América y Caribe,GUATEMALA
+Centro América y Caribe,HAITI
+Centro América y Caribe,HONDURAS
+Centro América y Caribe,ISLAS CAIMÁN
+Centro América y Caribe,ISLAS TURCAS Y CAICOS
+Centro América y Caribe,ISLAS VÍRGENES BRITÁNICAS
+Centro América y Caribe,ISLAS VÍRGENES DE LOS ESTADOS UNIDOS
+Centro América y Caribe,JAMAICA
+Centro América y Caribe,MARTINICA
+Centro América y Caribe,MONTSERRAT
+Centro América y Caribe,NICARAGUA
+Centro América y Caribe,OTROS PAISES O TERRITORIOS DEL CARIBE Y AMERICA CENTRAL
+Centro América y Caribe,PANAMA
+Centro América y Caribe,PUERTO RICO
+Centro América y Caribe,REPÚBLICA DOMINICANA
+Centro América y Caribe,SAN BARTOLOME
+Centro América y Caribe,SAN CRISTOBAL Y NIEVES
+Centro América y Caribe,SAN MARTIN (PARTE FRANCESA)
+Centro América y Caribe,SAN VICENTE Y LAS GRANADINAS
+Centro América y Caribe,SANTA LUCÍA
+Centro América y Caribe,TRINIDAD Y TOBAGO
+Oceanía,AUSTRALIA
+Oceanía,FIJI
+Oceanía,GUAM
+Oceanía,ISLA NORFOLK
+Oceanía,ISLAS COOK
+Oceanía,ISLAS MARIANAS DEL NORTE
+Oceanía,ISLAS MARSHALL
+Oceanía,ISLAS PITCAIRN
+Oceanía,ISLAS SALOMON
+Oceanía,KIRIBATI
+Oceanía,MICRONESIA
+Oceanía,NAURU
+Oceanía,NIUE
+Oceanía,NUEVA CALEDONIA
+Oceanía,NUEVA ZELANDA
+Oceanía,OTROS PAISES O TERRITORIOS DE OCEANIA
+Oceanía,PALAOS
+Oceanía,PAPUA NUEVA GUINEA
+Oceanía,POLINESIA FRANCESA
+Oceanía,SAMOA
+Oceanía,SAMOA AMERICANA
+Oceanía,TIMOR ORIENTAL
+Oceanía,TOKELAU
+Oceanía,TONGA
+Oceanía,TUVALU
+Oceanía,VANUATU
+Oceanía,WALLIS Y FORTUNA
+Resto de Europa,ALBANIA
+Resto de Europa,ANDORRA
+Resto de Europa,ARMENIA
+Resto de Europa,BIELORRUSIA
+Resto de Europa,BOSNIA Y HERZEGOVINA
+Resto de Europa,CROACIA
+Resto de Europa,ESTADO DE LA CIUDAD DEL VATICANO
+Resto de Europa,GEORGIA
+Resto de Europa,GIBRALTAR
+Resto de Europa,GUERNESEY
+Resto de Europa,ISLA DE MAN
+Resto de Europa,ISLANDIA
+Resto de Europa,ISLAS ALAND
+Resto de Europa,ISLAS DEL CANAL
+Resto de Europa,ISLAS FEROE
+Resto de Europa,JERSEY
+Resto de Europa,LIECHTENSTEIN
+Resto de Europa,MACEDONIA
+Resto de Europa,MOLDAVIA
+Resto de Europa,MONACO
+Resto de Europa,MONTENEGRO
+Resto de Europa,NORUEGA
+Resto de Europa,OTROS PAISES O TERRITORIOS DEL RESTO DE EUROPA
+Resto de Europa,RUSIA
+Resto de Europa,SAN MARINO
+Resto de Europa,SANTA SEDE
+Resto de Europa,SERBIA
+Resto de Europa,SUIZA
+Resto de Europa,SVALBARD Y JAN MAYEN
+Resto de Europa,TURQUIA
+Resto de Europa,UCRANIA
+Sudamérica,ARGENTINA
+Sudamérica,BOLIVIA
+Sudamérica,BRASIL
+Sudamérica,CHILE
+Sudamérica,COLOMBIA
+Sudamérica,ECUADOR
+Sudamérica,GUAYANA FRANCESA
+Sudamérica,GUYANA
+Sudamérica,ISLAS MALVINAS
+Sudamérica,OTROS PAÍSES O TERRITORIOS DE SUDAMÉRICA
+Sudamérica,PARAGUAY
+Sudamérica,PERÚ
+Sudamérica,SURINAM
+Sudamérica,URUGUAY
+Sudamérica,VENEZUELA
+Unión Europea,ALEMANIA
+Unión Europea,AUSTRIA
+Unión Europea,BULGARIA
+Unión Europea,BÉLGICA
+Unión Europea,CHIPRE
+Unión Europea,DINAMARCA
+Unión Europea,ESLOVENIA
+Unión Europea,ESPAÑA
+Unión Europea,ESTONIA
+Unión Europea,FINLANDIA
+Unión Europea,FRANCIA
+Unión Europea,GRECIA
+Unión Europea,HOLANDA
+Unión Europea,HUNGRIA
+Unión Europea,IRLANDA
+Unión Europea,ITALIA
+Unión Europea,LETONIA
+Unión Europea,LITUANIA
+Unión Europea,LUXEMBURGO
+Unión Europea,MALTA
+Unión Europea,OTROS PAISES O TERRITORIOS DE LA UNION EUROPEA
+Unión Europea,POLONIA
+Unión Europea,PORTUGAL
+Unión Europea,REINO UNIDO
+Unión Europea,REPÚBLICA CHECA
+Unión Europea,REPÚBLICA ESLOVACA
+Unión Europea,RUMANIA
+Unión Europea,SUECIA
