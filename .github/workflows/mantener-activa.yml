@@ -1,0 +1,18 @@
+# Mantiene despierta la app en Render durante el horario de oficina (Bogotá, lunes a viernes, 7 a. m. a 7 p. m.).
+# Render apaga los servicios gratuitos tras 15 minutos sin visitas; esta visita automática lo evita.
+# Configura la dirección en GitHub: Settings → Secrets and variables → Actions → Variables → APP_URL
+name: Mantener la app activa
+
+on:
+  schedule:
+    - cron: "*/10 12-23 * * 1-5"   # cada 10 min, 12:00–23:59 UTC = 7:00–18:59 en Bogotá
+  workflow_dispatch: {}
+
+jobs:
+  visitar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Visitar la app
+        run: |
+          if [ -z "${{ vars.APP_URL }}" ]; then echo "Falta la variable APP_URL"; exit 0; fi
+          curl -s -o /dev/null -w "Respuesta: %{http_code}\n" --max-time 90 "${{ vars.APP_URL }}" || true
