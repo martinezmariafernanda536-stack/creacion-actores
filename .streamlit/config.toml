@@ -1,0 +1,26 @@
+[theme]
+base = "light"
+primaryColor = "#1F4E8C"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F4F7"
+textColor = "#1B2533"
+borderColor = "#DCE1E8"
+showWidgetBorder = true
+baseRadius = "small"
+font = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+
+[theme.sidebar]
+backgroundColor = "#14284B"
+secondaryBackgroundColor = "#1E3863"
+textColor = "#E8EDF5"
+borderColor = "#2C4673"
+primaryColor = "#8DB4E8"
+
+[server]
+maxUploadSize = 20
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
