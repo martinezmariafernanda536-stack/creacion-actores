@@ -9,7 +9,7 @@ import pandas as pd
 
 from .config import (
     APP_AMBOS, APP_CICLOPE, APP_HERMES, E_ANULADA, E_CREADO, E_DEVUELTA, E_ITOP,
-    E_PEND_CICLOPE, E_REVISION, E_SOLICITADA, TAB_HISTORIAL, TAB_NOTIFICACIONES,
+    E_PEND_CICLOPE, E_REVISION, E_SOLICITADA, TAB_HISTORIAL, TAB_NOTIFICACIONES, TI_DESIGNADO,
     TAB_SOLICITUDES,
 )
 
@@ -98,6 +98,18 @@ def aplicar_accion(store, filas: list[dict], accion: str, usuario: dict,
             nuevo = E_CREADO
             upd.update({"codigo_ciclope": datos.get("codigo_ciclope", ""), "fecha_creado_ciclope": ts,
                         "responsable_ciclope": usuario["nombre"]})
+        elif accion == "asignar_id":
+            # GIT de TI asigna el número a un actor Designado y la solicitud vuelve a Hermes para crearlo
+            nuevo = E_REVISION
+            upd.update({"identificacion": datos.get("identificacion", ""), "responsable_ti": usuario["nombre"],
+                        "fecha_id_ti": ts})
+            for dest, nombre_dest in datos.get("avisar_a", []):
+                avisos.append({"id": _secrets.token_hex(6), "fecha": ts, "usuario_destino": dest,
+                               "nombre_destino": nombre_dest, "tipo": "Identificación asignada",
+                               "radicado": row["radicado"], "lote": row.get("lote", ""),
+                               "nombre_organizacion": row.get("nombre_organizacion", ""),
+                               "mensaje": f"TI asignó la identificación {datos.get('identificacion', '')}. "
+                                          "Ya se puede crear en Hermes.", "leido": "NO", "fecha_lectura": ""})
         elif accion == "devolver":
             nuevo = E_DEVUELTA
             upd["observaciones_revision"] = observacion
@@ -112,6 +124,19 @@ def aplicar_accion(store, filas: list[dict], accion: str, usuario: dict,
                           prev, nuevo, observacion or _resumen_datos(datos)))
         if nuevo in (E_DEVUELTA, E_CREADO, E_ANULADA) and row.get("usuario_solicitante"):
             avisos.append(_aviso(row, nuevo, observacion))
+        if accion in ("creado_hermes", "creado_ciclope") and row.get("tipo_identificacion") == TI_DESIGNADO:
+            # El GIT de TI sigue los actores Designado a los que asignó número
+            texto = ("quedó creado en todos los sistemas." if nuevo == E_CREADO else
+                     "quedó creado en Hermes y pasó a creación en Cíclope.")
+            ident = upd.get("identificacion") or row.get("identificacion", "")
+            for dest, nombre_dest in datos.get("avisar_ti", []):
+                avisos.append({"id": _secrets.token_hex(6), "fecha": ts, "usuario_destino": dest,
+                               "nombre_destino": nombre_dest, "tipo": "Designado " + ("creado" if nuevo == E_CREADO
+                                                                                      else "creado en Hermes"),
+                               "radicado": row["radicado"], "lote": row.get("lote", ""),
+                               "nombre_organizacion": row.get("nombre_organizacion", ""),
+                               "mensaje": f"El actor Designado con identificación {ident} {texto}",
+                               "leido": "NO", "fecha_lectura": ""})
     store.update_many(TAB_SOLICITUDES, "radicado", cambios)
     store.append(TAB_HISTORIAL, hist)
     store.append(TAB_NOTIFICACIONES, avisos)
@@ -136,6 +161,7 @@ ETIQUETA_ACCION = {
     "itop": "Itop en trámite",
     "creado_hermes": "Creado en Hermes",
     "creado_ciclope": "Creado en Cíclope",
+    "asignar_id": "Identificación asignada por TI",
     "devolver": "Devuelta al solicitante",
     "anular": "Anulada",
 }
@@ -159,7 +185,7 @@ def _aviso(row, nuevo, obs):
 
 
 def _resumen_datos(d: dict) -> str:
-    return "; ".join(f"{k}: {v}" for k, v in d.items() if v)
+    return "; ".join(f"{k}: {v}" for k, v in d.items() if v and k not in ("avisar_a", "avisar_ti"))
 
 
 def dias_sin_movimiento(df: pd.DataFrame) -> pd.Series:

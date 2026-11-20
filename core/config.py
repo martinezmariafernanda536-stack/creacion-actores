@@ -29,6 +29,8 @@ COLS_SOLICITUDES = [
     "responsable_hermes", "numero_itop", "codigo_hermes", "fecha_creado_hermes",
     # Gestión Cíclope
     "responsable_ciclope", "codigo_ciclope", "fecha_creado_ciclope",
+    # Asignación de identificación por el GIT de TI (solo actores Designado)
+    "responsable_ti", "fecha_id_ti",
     # Control
     "observaciones_revision", "fecha_actualizacion", "origen",
     # Correcciones posteriores al envío
@@ -59,11 +61,13 @@ ROL_SOLICITANTE = "solicitante"
 ROL_HERMES = "hermes"
 ROL_CICLOPE = "ciclope"
 ROL_ADMIN = "admin"
-ROLES = [ROL_SOLICITANTE, ROL_HERMES, ROL_CICLOPE, ROL_ADMIN]
+ROL_TI = "ti"
+ROLES = [ROL_SOLICITANTE, ROL_HERMES, ROL_CICLOPE, ROL_TI, ROL_ADMIN]
 ROLES_ETIQUETA = {
     ROL_SOLICITANTE: "Solicitante",
     ROL_HERMES: "Creación en Hermes",
     ROL_CICLOPE: "Creación en Cíclope",
+    ROL_TI: "Asignación de identificación (GIT de TI)",
     ROL_ADMIN: "Administrador",
 }
 

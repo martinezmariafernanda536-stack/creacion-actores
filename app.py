@@ -4,8 +4,10 @@ APC-Colombia · Dirección de Gestión de Demanda de Cooperación Internacional
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import json
+import re
 import secrets as _secrets_mod
 from pathlib import Path
 import time
@@ -27,16 +29,17 @@ from core.auth import (  # noqa: E402
 from core.migracion import migrar_sin_correos  # noqa: E402
 from core.config import (  # noqa: E402
     APP_AMBOS, APP_CICLOPE, APP_HERMES, COLA_CICLOPE, COLA_HERMES, PASTEL_ESTADO, DIAS_ALERTA,
-    E_ANULADA, E_CREADO, E_DEVUELTA, E_SOLICITADA, ESTADOS,
-    ESTADOS_ABIERTOS, NO_APLICA, PAIS_COLOMBIA, ROL_ADMIN, ROL_CICLOPE, ROL_HERMES, ROLES,
+    E_ANULADA, E_CREADO, E_DEVUELTA, E_ITOP, E_PEND_CICLOPE, E_REVISION, E_SOLICITADA, ESTADOS,
+    ESTADOS_ABIERTOS, NO_APLICA, PAIS_COLOMBIA, ROL_ADMIN, ROL_CICLOPE, ROL_HERMES, ROL_TI, ROLES,
     ROL_SOLICITANTE, ROLES_ETIQUETA, TAB_ACTORES_CICLOPE, TAB_BORRADORES, TAB_HISTORIAL, TAB_NOTIFICACIONES, TAB_SOLICITUDES,
     TAB_USUARIOS, TI_DESIGNADO,
     TI_NIT, TIPOS_ENTIDAD, TIPOS_IDENTIFICACION, TIPOS_ORGANIZACION, TO_COLOMBIANA,
     TO_EXT_DOMICILIADA,
 )
+from core.carga import CAMPOS_ACTUALIZABLES, cruzar_carga, tabla_cambios as cambios_de_carga  # noqa: E402
 from core.correcciones import (  # noqa: E402
     C_PEND_CICLOPE, C_PEND_HERMES, CAMPOS, aplicar_correccion, leer_diff, rechazar_correccion,
-    solicitar_correccion,
+    solicitar_correccion, usuarios_rol,
 )
 from core.exportar import generar_excel  # noqa: E402
 from core.historico import leer_historico  # noqa: E402
@@ -46,9 +49,10 @@ from core.flujo import (  # noqa: E402
 )
 from core.storage import crear_store, diagnosticar_conexion  # noqa: E402
 from core import sesion as ses  # noqa: E402
-from core.validaciones import (  # noqa: E402
-    buscar_duplicados, clave_identificacion, digito_verificacion, validar_nit, limpiar_texto, normalizar_identificacion,
-    normalizar_nombre, regla_tipo_identificacion, solo_digitos, validar_actor,
+from core.validaciones import (
+    caracteres_no_validos, fuente_interna,  # noqa: E402
+    buscar_duplicados, digito_verificacion, validar_nit, limpiar_texto, normalizar_identificacion,
+    regla_tipo_identificacion, solo_digitos, validar_actor,
 )
 from core.config import PLANTILLA_BASE  # noqa: E402
 from core.flujo import _hist, ahora  # noqa: E402
@@ -121,13 +125,14 @@ def recuperacion_activa() -> bool:
 EXPLICACION_ID = {
     "NIT": ("**NIT (Número de Identificación Tributaria):** es el número que asigna la DIAN en Colombia. Úsalo para "
             "organizaciones colombianas y extranjeras domiciliadas en Colombia. Son 10 dígitos: los 9 del número más "
-            "el dígito de verificación, sin puntos ni guiones. Lo encuentras en el RUT o en el RUES."),
+            "el dígito de verificación, sin puntos, guiones ni caracteres especiales."),
     "NIE": ("**NIE (Número de Identificación Extranjero):** es el número de registro de la organización en su país "
             "de origen. Úsalo para organizaciones extranjeras **no domiciliadas** en Colombia. Puede tener letras y "
-            "números; escríbelo tal como aparece en el registro oficial de ese país."),
+            "números; escríbelo sin puntos, guiones, espacios ni caracteres especiales."),
     "NIF": ("**NIF (Número de Identificación Fiscal):** es el número tributario de la organización en su país, "
             "como el NIF de España o Portugal. Úsalo para organizaciones extranjeras **no domiciliadas** en Colombia "
-            "que se identifican con su número fiscal. Puede tener letras y números."),
+            "que se identifican con su número fiscal. Solo letras y números, sin puntos, guiones ni caracteres "
+            "especiales."),
     "Designado APC Colombia - GIT de TI": (
             "**Designado APC Colombia – GIT de TI:** úsalo cuando la organización no tiene un número que se pueda "
             "registrar. El número lo asigna el GIT de TI mediante Itop y quien crea en Hermes lo registra. "
@@ -254,6 +259,8 @@ def paso(n: int, titulo: str, descripcion: str = ""):
 
 
 ETIQUETAS = {
+    "numero_itop": "Número de Itop", "responsable_ti": "Asignó TI", "fecha_id_ti": "Fecha asignación TI",
+    "fecha_creado_hermes": "Creado en Hermes", "fecha_creado_ciclope": "Creado en Cíclope",
     "radicado": "Radicado", "lote": "Lote", "nombre_organizacion": "Organización",
     "tipo_identificacion": "Tipo de identificación", "identificacion": "Identificación", "pais": "País",
     "municipio": "Municipio / ciudad", "aplicativo": "Crear en", "estado": "Estado", "solicitante": "Solicitante",
@@ -282,6 +289,20 @@ def tabla(df, **kw):
     cfg.update(kw.pop("column_config", {}))
     datos = df.style.apply(_pintar_fila, axis=1) if "estado" in df.columns and len(df) <= 3000 else df
     return st.dataframe(datos, hide_index=True, use_container_width=True, column_config=cfg, **kw)
+
+
+def clave_tabla(base: str, v: pd.DataFrame) -> str:
+    """Clave de una tabla seleccionable que cambia cuando cambian sus filas.
+
+    Así, si una solicitud sale de la lista (por ejemplo, al pasarla de Hermes a Cíclope), la selección anterior
+    se borra en lugar de apuntar a una fila que ya no existe o, peor, a otro actor.
+    """
+    huella = hashlib.md5("|".join(map(str, v.get("radicado", pd.Series(dtype=str)))).encode()).hexdigest()[:10]
+    return f"{base}_{huella}"
+
+
+def filas_elegidas(ev, v: pd.DataFrame) -> list[int]:
+    return [i for i in (ev.selection.rows if ev is not None else []) if 0 <= i < len(v)]
 
 
 def filtro_estados(df: pd.DataFrame, estados: list[str], key: str) -> list[str]:
@@ -640,6 +661,7 @@ VISTAS = {
     "Solicitante": {ROL_SOLICITANTE},
     "Creación en Hermes": {ROL_SOLICITANTE, ROL_HERMES},
     "Creación en Cíclope": {ROL_SOLICITANTE, ROL_CICLOPE},
+    "Asignación de identificación (GIT de TI)": {ROL_SOLICITANTE, ROL_TI},
 }
 if ROL_ADMIN in ROLES_U:
     with st.sidebar:
@@ -656,7 +678,7 @@ if ROL_ADMIN in ROLES_U:
 # 1. Nueva solicitud
 # ---------------------------------------------------------------------------
 # Campos del formulario que se guardan en el borrador (clave del widget sin el sufijo de versión)
-CAMPOS_FORM = ["nombre", "tipo_id", "ident", "existe", "ref", "app", "tipo_org", "tipo_ent", "cont", "pais",
+CAMPOS_FORM = ["nombre", "tipo_id", "ident", "existe", "ref", "app", "en_ciclope", "tipo_org", "tipo_ent", "cont", "pais",
                "dep", "mun", "dep_txt", "ciudad", "dir", "email", "fijo", "movil", "fuente", "obs"]
 SEG_ENTRE_GUARDADOS = 6
 
@@ -665,6 +687,7 @@ def _opciones_validas(n: str, v, form: dict) -> bool:
     """Un valor recuperado solo se pone en una lista si sigue siendo una de sus opciones."""
     listas = {
         "tipo_id": TIPOS_IDENTIFICACION, "existe": ["No", "Sí"], "app": [APP_AMBOS, APP_HERMES],
+        "en_ciclope": ["No", "Sí"],
         "tipo_org": TIPOS_ORGANIZACION, "tipo_ent": TIPOS_ENTIDAD, "cont": cat.continentes(),
         "pais": cat.paises_de(form.get("cont")) if form.get("cont") else [], "dep": cat.departamentos(),
         "mun": cat.municipios_de(form.get("dep")) if form.get("dep") else [],
@@ -739,11 +762,12 @@ def campos_pendientes(c: dict) -> list[str]:
            ("¿Ya está en Hermes?", c["existe"]), ("Tipo de organización", c["tipo_org"]),
            ("Tipo de entidad", c["tipo_ent"]), ("Continente", c["continente"]), ("País", c["pais"]),
            ("Departamento / estado", c["depto"]), ("Municipio / ciudad", c["muni"]), ("Dirección", c["direccion"]),
-           ("Correo", c["email"]), ("Teléfono fijo", c["fijo"]), ("Teléfono móvil", c["movil"]),
-           ("Fuente del dato", c["fuente"])]
+           ("Correo", c["email"]), ("Teléfono fijo", c["fijo"]), ("Teléfono móvil", c["movil"])]
     if c["existe"] == "Sí":
-        req.append(("Nombre o código en Hermes", c["referencia"]))
-    return [n for n, v in req if not (v if isinstance(v, bool) else limpiar_texto(v))]
+        req.append(("Número de identificación en Hermes", c["referencia"]))
+    if c["existe"] == "No" and c["app"] == APP_HERMES:
+        req.append(("¿Ya está en Cíclope?", c["en_ciclope"]))
+    return [n for n, v in req if not (v if isinstance(v, bool) else limpiar_texto(v))], len(req)
 
 
 def pagina_nueva():
@@ -783,10 +807,18 @@ def formulario_solicitud():
                            help="NIT: organizaciones colombianas o extranjeras domiciliadas en Colombia (10 dígitos "
                                 "con dígito de verificación). NIE o NIF: organizaciones extranjeras no domiciliadas, "
                                 "con el número de su país. Designado APC: cuando no tiene número y lo asigna TI.")
-    ident = c3.text_input("Identificación (sin puntos ni guiones)", key=k("ident"),
-                          disabled=tipo_id == TI_DESIGNADO,
-                          help="NIT: 10 dígitos incluido el dígito de verificación.")
+    ident = c3.text_input("Identificación (la asigna TI)" if tipo_id == TI_DESIGNADO else "Identificación *",
+                          key=k("ident"), disabled=tipo_id == TI_DESIGNADO,
+                          placeholder="Sin puntos, guiones ni caracteres especiales",
+                          help="Solo letras y números: sin puntos, guiones, espacios ni caracteres especiales. "
+                               "NIT: 10 dígitos incluido el dígito de verificación.")
     st.caption(EXPLICACION_ID[tipo_id])
+    if tipo_id == TI_NIT:
+        st.info("**¿Dónde encuentro el NIT?** En el **RUT** de la organización (DIAN) o en el certificado del "
+                "**RUES** de la Cámara de Comercio.", icon=":material/search:")
+    if tipo_id != TI_DESIGNADO and caracteres_no_validos(ident, solo_numeros=tipo_id == TI_NIT):
+        st.warning("Escribe la identificación sin puntos, guiones ni caracteres especiales"
+                   + (": solo números." if tipo_id == TI_NIT else ": solo letras y números."))
     if tipo_id == TI_NIT and limpiar_texto(ident):
         d = solo_digitos(ident)
         if len(d) == 9:
@@ -810,14 +842,23 @@ def formulario_solicitud():
         st.info("Según las coincidencias, este actor podría estar ya creado. Verifícalo en Hermes antes de responder.")
     existe = st.radio("¿El actor ya está creado en Hermes? *", ["No", "Sí"], index=None,
                       horizontal=True, key=k("existe"))
-    referencia, aplicativo = "", None
+    referencia, aplicativo, en_ciclope = "", None, None
     if existe == "Sí":
-        referencia = st.text_input("¿Con qué nombre o código aparece en Hermes? *", key=k("ref"))
+        referencia = st.text_input("Número de identificación del actor en Hermes *", key=k("ref"),
+                                   help="El número de identificación con el que el actor ya está creado en Hermes.")
         aplicativo = APP_CICLOPE
         st.info("Como ya existe en Hermes, la solicitud irá directamente a creación en **Cíclope**.")
     elif existe == "No":
         aplicativo = st.radio("¿Dónde se debe crear? *", [APP_AMBOS, APP_HERMES], horizontal=True,
                               key=k("app"))
+        if aplicativo == APP_HERMES:
+            en_ciclope = st.radio("¿El actor ya está creado en Cíclope? *", ["No", "Sí"], index=None,
+                                  horizontal=True, key=k("en_ciclope"))
+            if en_ciclope == "No":
+                aplicativo = APP_AMBOS
+                st.info("Como tampoco está en Cíclope, la solicitud se creará en **Hermes y en Cíclope**.")
+            elif en_ciclope == "Sí":
+                st.info("La solicitud se creará solo en **Hermes**.")
 
     # --- Paso 3: datos de la plantilla
     paso(3, "Datos de la organización", "Campos de la plantilla de creación de terceros")
@@ -855,11 +896,21 @@ def formulario_solicitud():
                           help="Preferiblemente institucional genérico (info@, contacto@…).")
     fijo = c2.text_input("Teléfono fijo (solo números) *", key=k("fijo"))
     movil = c3.text_input("Teléfono móvil (solo números) *", key=k("movil"))
+    for nombre_tel, valor_tel in (("fijo", fijo), ("móvil", movil)):
+        if caracteres_no_validos(valor_tel, solo_numeros=True):
+            st.warning(f"El teléfono {nombre_tel} solo admite números: quita espacios, guiones, paréntesis, "
+                       "el signo + o letras.")
     c1, c2 = st.columns(2)
-    fuente = c1.text_input("Fuente del dato (URL o documento) *", key=k("fuente"),
-                           help="Ej.: página web de la organización, RUES, RUT.")
+    fuente = c1.text_input("Fuente del dato (opcional)", key=k("fuente"),
+                           placeholder="Ej.: página web de la organización, RUES",
+                           help="Solo información pública: página web, RUES u otro registro abierto.")
     obs = c2.text_input("Observaciones (opcional)", key=k("obs"),
                         help="Contexto de la solicitud: proyecto, convenio o motivo de la creación.")
+    st.caption(":material/public: En la fuente del dato solo va información pública. No pongas archivos, carpetas "
+               "ni enlaces internos de APC-Colombia.")
+    if fuente_interna(fuente):
+        st.error("La fuente parece un archivo o un enlace interno. Escribe una fuente pública, como la página web "
+                 "de la organización o el RUES.")
 
     actor = {
         "nombre_organizacion": limpiar_texto(nombre).upper(), "tipo_identificacion": tipo_id,
@@ -878,9 +929,11 @@ def formulario_solicitud():
         if not existe:
             errores.insert(0, "Responde si el actor ya está creado en Hermes.")
         if existe == "Sí" and not actor["referencia_hermes_existente"]:
-            errores.append("Falta: Nombre o código con que aparece en Hermes.")
-        if not actor["fuente_dato"]:
-            errores.append("Falta: Fuente del dato (URL o documento).")
+            errores.append("Falta: Número de identificación del actor en Hermes.")
+        if existe == "No" and k("app") in ss and ss[k("app")] == APP_HERMES and not en_ciclope:
+            errores.append("Responde si el actor ya está creado en Cíclope.")
+        if fuente_interna(actor["fuente_dato"]):
+            errores.append("La fuente del dato debe ser pública: no se permiten archivos ni enlaces internos.")
         if not dup.empty and (dup["coincidencia"] == "Misma identificación").any():
             errores.append("Ya existe un actor con esta identificación: no se puede solicitar de nuevo.")
         if actor["identificacion"] and any(a["identificacion"] == actor["identificacion"] for a in ss.carrito):
@@ -888,12 +941,11 @@ def formulario_solicitud():
         return errores
 
     # --- Avance del formulario y acciones
-    faltan = campos_pendientes({"nombre": nombre, "ident": ident, "tipo_id": tipo_id, "existe": existe,
-                                "referencia": referencia, "tipo_org": tipo_org, "tipo_ent": tipo_ent,
-                                "continente": continente, "pais": pais, "depto": depto, "muni": muni,
-                                "direccion": direccion, "email": email, "fijo": fijo, "movil": movil,
-                                "fuente": fuente})
-    total = 14 + (existe == "Sí")
+    faltan, total = campos_pendientes({
+        "nombre": nombre, "ident": ident, "tipo_id": tipo_id, "existe": existe, "referencia": referencia,
+        "app": ss.get(k("app")), "en_ciclope": en_ciclope, "tipo_org": tipo_org, "tipo_ent": tipo_ent,
+        "continente": continente, "pais": pais, "depto": depto, "muni": muni, "direccion": direccion,
+        "email": email, "fijo": fijo, "movil": movil})
     vacio = len(faltan) == total
     st.divider()
     if vacio:
@@ -998,11 +1050,12 @@ def seguimiento_mis(mias: pd.DataFrame):
         return
     leyenda_estados()
     ev = tabla(v[["radicado", "nombre_organizacion", "estado", "aplicativo", "fecha_solicitud",
-                  "fecha_actualizacion"]], on_select="rerun", selection_mode="single-row", key="tabla_mis")
-    if not ev.selection.rows:
+                  "fecha_actualizacion"]], on_select="rerun", selection_mode="single-row", key=clave_tabla("tabla_mis", v))
+    if not filas_elegidas(ev, v):
         st.caption(":material/touch_app: Haz clic en la casilla de una fila para ver su detalle, su historial o pedir una corrección.")
-    if ev.selection.rows:
-        r = v.iloc[ev.selection.rows[0]].to_dict()
+    elegidas = filas_elegidas(ev, v)
+    if elegidas:
+        r = v.iloc[elegidas[0]].to_dict()
         with st.container(border=True):
             ficha_actor(r)
             form_solicitar_correccion(r)
@@ -1180,9 +1233,10 @@ def cola_bandeja(rol: str, df: pd.DataFrame):
     ev = tabla(
         v[["radicado", "nombre_organizacion", "estado", "tipo_identificacion", "identificacion", "pais",
            "aplicativo", "solicitante", "dias"]],
-        on_select="rerun", selection_mode="multi-row", key=f"tabla_{rol}",
+        on_select="rerun", selection_mode="multi-row", key=clave_tabla(f"tabla_{rol}", v),
     )
-    sel = v.iloc[ev.selection.rows] if ev.selection.rows else v.iloc[0:0]
+    elegidas = filas_elegidas(ev, v)
+    sel = v.iloc[elegidas] if elegidas else v.iloc[0:0]
 
     c1, c2 = st.columns(2)
     c1.download_button("Descargar cola en Excel (formato plantilla)", generar_excel(v),
@@ -1204,7 +1258,8 @@ def cola_bandeja(rol: str, df: pd.DataFrame):
                 ejecutar(filas, "tomar")
             if b[1].button("Marcar creadas en Hermes", use_container_width=True):
                 if any(f["tipo_identificacion"] == TI_DESIGNADO and not f["identificacion"] for f in filas):
-                    st.error("Hay actores 'Designado' sin identificación asignada: gestiónalos uno a uno.")
+                    st.error("Hay actores Designado que aún no tienen la identificación asignada por TI: "
+                             "quítalos de la selección o envíalos a TI.")
                 else:
                     ejecutar(filas, "creado_hermes")
         else:
@@ -1230,26 +1285,35 @@ def cola_bandeja(rol: str, df: pd.DataFrame):
     if es_hermes:
         t1, t2, t3, t4 = st.tabs(["Registrar creación", "Revisión e Itop", "Devolver", "Anular"])
         with t1:
-            with st.form("f_creado_h"):
-                codigo = st.text_input("Código o ID asignado en Hermes (opcional)")
-                ident = ""
-                if r["tipo_identificacion"] == TI_DESIGNADO and not r["identificacion"]:
-                    ident = st.text_input("Identificación asignada por TI *")
-                destino = "Pendiente en Cíclope" if r["aplicativo"] == APP_AMBOS else "Creado"
-                st.caption(f"Pasará a: **{destino}**")
-                if st.form_submit_button("Registrar creación en Hermes", type="primary"):
-                    if r["tipo_identificacion"] == TI_DESIGNADO and not r["identificacion"] and not ident.strip():
-                        st.error("Registra la identificación asignada por TI.")
-                    else:
-                        ejecutar([r], "creado_hermes", datos={"codigo_hermes": codigo.strip(),
-                                                               "identificacion": ident.strip()})
+            espera_ti = r["tipo_identificacion"] == TI_DESIGNADO and not r["identificacion"]
+            if espera_ti:
+                st.info("Este actor es **Designado APC Colombia - GIT de TI**: antes de crearlo, TI debe asignarle "
+                        "el número de identificación. Envíalo a TI en la pestaña **Revisión e Itop**."
+                        + (" Ya está en la Bandeja de TI." if r["estado"] == E_ITOP else ""),
+                        icon=":material/hourglass_top:")
+            else:
+                with st.form("f_creado_h"):
+                    if r["tipo_identificacion"] == TI_DESIGNADO:
+                        st.markdown(f"Identificación asignada por TI: **{r['identificacion']}**")
+                    codigo = st.text_input("Código o ID asignado en Hermes (opcional)")
+                    destino = "Pendiente en Cíclope" if r["aplicativo"] == APP_AMBOS else "Creado"
+                    st.caption(f"Pasará a: **{destino}**")
+                    if st.form_submit_button("Registrar creación en Hermes", type="primary"):
+                        ejecutar([r], "creado_hermes", datos={"codigo_hermes": codigo.strip()})
         with t2:
             if r["estado"] == E_SOLICITADA and st.button("Tomar en revisión"):
                 ejecutar([r], "tomar")
-            with st.form("f_itop"):
-                itop = st.text_input("Número de Itop", r.get("numero_itop", ""))
-                if st.form_submit_button("Marcar 'Itop en trámite'"):
-                    ejecutar([r], "itop", datos={"numero_itop": itop.strip()})
+            if r["tipo_identificacion"] == TI_DESIGNADO and not r["identificacion"]:
+                with st.form("f_itop"):
+                    st.markdown("**Enviar a TI para que asigne la identificación**")
+                    itop = st.text_input("Número de Itop", r.get("numero_itop", ""))
+                    st.caption("Pasará a **Itop en trámite** y aparecerá en la Bandeja de TI.")
+                    if st.form_submit_button("Enviar a TI"):
+                        ejecutar([r], "itop", datos={"numero_itop": itop.strip()})
+            elif r["tipo_identificacion"] == TI_DESIGNADO:
+                st.caption(f"TI ya asignó la identificación **{r['identificacion']}**"
+                           + (f" ({r.get('responsable_ti')}, {str(r.get('fecha_id_ti'))[:16]})."
+                              if r.get("responsable_ti") else "."))
         with t3:
             form_motivo(r, "devolver", "Devolver al solicitante")
         with t4:
@@ -1267,6 +1331,85 @@ def cola_bandeja(rol: str, df: pd.DataFrame):
             form_motivo(r, "anular", "Anular solicitud")
 
 
+def pagina_bandeja_ti():
+    encabezado("Bandeja de TI", "Actores «Designado APC Colombia - GIT de TI» que esperan su número de "
+               "identificación para poder crearse en Hermes.")
+    df = leer(TAB_SOLICITUDES)
+    designados = df[df["tipo_identificacion"] == TI_DESIGNADO]
+    cola = designados[designados["estado"] == E_ITOP].copy()
+    en_hermes = designados[designados["estado"].isin([E_SOLICITADA, E_REVISION]) & (designados["identificacion"] == "")]
+    m = st.columns(3)
+    m[0].metric("Por asignar", len(cola))
+    m[1].metric("En revisión de Hermes (aún no enviados)", len(en_hermes))
+    cola["dias"] = dias_sin_movimiento(cola) if not cola.empty else []
+    m[2].metric(f"Más de {DIAS_ALERTA} días", int((cola["dias"] > DIAS_ALERTA).sum()) if not cola.empty else 0)
+    t1, t2 = st.tabs([f"Por asignar ({len(cola)})", f"Seguimiento de actores Designado ({len(designados)})"])
+    with t1:
+        if cola.empty:
+            st.success("No hay actores esperando identificación.")
+        else:
+            cola_ti(cola, df)
+    with t2:
+        seguimiento_ti(designados)
+
+
+@st.fragment
+def seguimiento_ti(designados: pd.DataFrame):
+    """Todos los actores Designado: en qué va cada uno, desde la solicitud hasta su creación."""
+    marcar_actividad()
+    if designados.empty:
+        st.caption("Aún no hay actores Designado.")
+        return
+    st.caption("Aquí ves en qué va cada actor Designado. Cuando uno queda creado en Hermes o en todos los "
+               "sistemas, también te llega un aviso.")
+    filtro = filtro_estados(designados, ESTADOS, "pills_ti_seg")
+    texto = st.text_input("Buscar (nombre, identificación o radicado)", placeholder="Escribe para buscar…",
+                          key="buscar_ti_seg")
+    v = designados if not filtro else designados[designados["estado"].isin(filtro)]
+    if texto:
+        v = filtrar_texto(v, texto, ["nombre_organizacion", "identificacion", "radicado", "lote"])
+    v = v.sort_values("fecha_actualizacion", ascending=False)
+    tabla(v[["radicado", "nombre_organizacion", "identificacion", "estado", "responsable_ti", "fecha_id_ti",
+             "fecha_creado_hermes", "fecha_creado_ciclope"]])
+
+
+@st.fragment
+def cola_ti(cola: pd.DataFrame, df: pd.DataFrame):
+    marcar_actividad()
+    texto = st.text_input("Buscar (nombre o radicado)", placeholder="Escribe para buscar…")
+    v = cola.sort_values("fecha_actualizacion")
+    if texto:
+        v = filtrar_texto(v, texto, ["nombre_organizacion", "radicado", "lote", "numero_itop"])
+    ev = tabla(v[["radicado", "nombre_organizacion", "pais", "numero_itop", "solicitante", "fecha_actualizacion",
+                  "dias"]], on_select="rerun", selection_mode="single-row", key=clave_tabla("tabla_ti", v))
+    elegidas = filas_elegidas(ev, v)
+    if not elegidas:
+        st.caption(":material/touch_app: Marca la casilla de una fila para asignarle el número de identificación.")
+        return
+    r = v.iloc[elegidas[0]].to_dict()
+    with st.container(border=True):
+        ficha_actor(r)
+        with st.form("f_asignar_id"):
+            nuevo_id = st.text_input("Número de identificación asignado *",
+                                     placeholder="Solo letras y números, sin puntos, guiones ni caracteres especiales")
+            st.caption("Se guardará en la base de datos y la solicitud volverá a la Bandeja de Hermes para crearla.")
+            if st.form_submit_button("Guardar identificación y enviar a Hermes", type="primary"):
+                valor = re.sub(r"[\s.\-_/]", "", nuevo_id.strip()).upper()
+                otros = df[(df["identificacion"].astype(str).str.upper() == valor) & (df["radicado"] != r["radicado"])]
+                if not valor:
+                    st.error("Escribe el número de identificación.")
+                elif not re.fullmatch(r"[A-Z0-9]+", valor):
+                    st.error("Solo letras y números, sin puntos, guiones ni caracteres especiales.")
+                elif not otros.empty:
+                    st.error(f"Ese número ya pertenece a otro actor: {otros.iloc[0]['nombre_organizacion']} "
+                             f"(radicado {otros.iloc[0]['radicado']}).")
+                else:
+                    ejecutar([r], "asignar_id", datos={
+                        "identificacion": valor, "avisar_a": usuarios_rol(leer(TAB_USUARIOS), ROL_HERMES)})
+        with st.expander("Historial"):
+            historial_de(r["radicado"])
+
+
 def form_motivo(r, accion, etiqueta):
     with st.form(f"f_{accion}"):
         motivo = st.text_area("Motivo *", height=80)
@@ -1278,8 +1421,19 @@ def form_motivo(r, accion, etiqueta):
 
 
 def ejecutar(filas, accion, observacion="", datos=None):
-    with st.spinner("Guardando…"):
-        n = aplicar_accion(store, filas, accion, USUARIO, observacion, datos)
+    if accion in ("creado_hermes", "creado_ciclope") and any(
+            f.get("tipo_identificacion") == TI_DESIGNADO for f in filas):
+        datos = {**(datos or {}), "avisar_ti": usuarios_rol(leer(TAB_USUARIOS), ROL_TI)}
+    try:
+        with st.spinner("Guardando…"):
+            n = aplicar_accion(store, filas, accion, USUARIO, observacion, datos)
+    except Exception as e:  # noqa: BLE001
+        refrescar()
+        st.error("No se pudo guardar el cambio porque la hoja de Google no respondió. Espera unos segundos y "
+                 "vuelve a intentarlo; no hace falta recargar la página.", icon=":material/cloud_off:")
+        with st.expander("Detalle técnico"):
+            st.code(f"{type(e).__name__}: {e}")
+        return
     refrescar()
     st.toast(f"{n} solicitud(es) actualizada(s).")
     st.rerun()
@@ -1316,14 +1470,15 @@ def pagina_consulta():
     leyenda_estados()
     ev = tabla(v[["radicado", "nombre_organizacion", "estado", "identificacion", "pais", "aplicativo",
                   "solicitante", "fecha_solicitud", "dias"]],
-               on_select="rerun", selection_mode="single-row", key="tabla_consulta")
+               on_select="rerun", selection_mode="single-row", key=clave_tabla("tabla_consulta", v))
     c1, c2 = st.columns(2)
     c1.download_button(f"Descargar Excel formato plantilla ({len(v)} filas)", generar_excel(v),
                        file_name=f"actores_{datetime.now():%Y%m%d}.xlsx", use_container_width=True)
     c2.download_button("Descargar CSV con todos los campos", v.drop(columns=["correo_solicitante"], errors="ignore").to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"actores_completo_{datetime.now():%Y%m%d}.csv", use_container_width=True)
-    if ev.selection.rows:
-        r = v.iloc[ev.selection.rows[0]].to_dict()
+    elegidas = filas_elegidas(ev, v)
+    if elegidas:
+        r = v.iloc[elegidas[0]].to_dict()
         with st.container(border=True):
             ficha_actor(r)
             historial_de(r["radicado"])
@@ -1344,7 +1499,8 @@ def pagina_carga_masiva():
         "- Si la columna *Estado* dice **Creado**, el actor se registra como ya creado (histórico). "
         "Si está vacía, entra a la bandeja de Hermes como **Solicitud realizada**.\n"
         "- Los actores que ya existen en el sistema (por identificación, o por nombre si no tienen identificación) "
-        "**no se cargan**, para evitar duplicados.")
+        "**no se duplican**. Puedes omitirlos o **actualizar sus datos** con los del archivo; antes de guardar se "
+        "muestra qué cambia en cada uno.")
     with open(PLANTILLA_BASE, "rb") as f:
         st.download_button("Descargar plantilla vacía", f.read(), file_name="plantilla_carga_masiva.xlsx")
 
@@ -1365,42 +1521,74 @@ def pagina_carga_masiva():
                    "y que la columna *Nombre Organización* esté llena.")
         return
 
-    existentes = leer(TAB_SOLICITUDES)
-    existentes = existentes[existentes["estado"] != E_ANULADA]
-    claves = {clave_identificacion(t, i) for t, i in zip(existentes["tipo_identificacion"], existentes["identificacion"]) if i}
-    nombres = {normalizar_nombre(n) for n in existentes["nombre_organizacion"] if n}
-    nuevas, duplicadas, vistas = [], [], set()
-    for f_ in filas:
+    nuevas, actualizaciones, sin_cambios, repetidas = cruzar_carga(filas, leer(TAB_SOLICITUDES))
+    for f_ in nuevas:
         if not f_["fecha_solicitud"]:
             f_["fecha_solicitud"] = f_["fecha_actualizacion"] = ahora()
-        # Con identificación se compara el número; sin ella (p. ej. Designado APC), el nombre
-        c = (clave_identificacion(f_["tipo_identificacion"], f_["identificacion"]) if f_["identificacion"]
-             else "N:" + normalizar_nombre(f_["nombre_organizacion"]))
-        repetido = c in vistas or (c in claves if not c.startswith("N:") else c[2:] in nombres)
-        if repetido:
-            duplicadas.append(f_)
-        else:
-            nuevas.append(f_)
-            vistas.add(c)
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Actores en el archivo", len(filas))
-    c2.metric("Nuevos para cargar", len(nuevas))
-    c3.metric("Ya existen (se omiten)", len(duplicadas))
+    modo = st.radio("¿Qué hacer con los actores que ya existen en el sistema?",
+                    ["Omitirlos (solo agregar los nuevos)", "Actualizar sus datos con los del archivo"],
+                    horizontal=True, key="modo_carga")
+    actualizar = modo.startswith("Actualizar")
+
+    c = st.columns(4)
+    c[0].metric("Actores en el archivo", len(filas))
+    c[1].metric("Nuevos para cargar", len(nuevas))
+    c[2].metric("Ya existen con datos distintos", len(actualizaciones))
+    c[3].metric("Ya existen sin cambios", len(sin_cambios) + len(repetidas))
     cols = ["nombre_organizacion", "tipo_identificacion", "identificacion", "pais", "estado", "solicitante"]
     if nuevas:
-        st.subheader("Se cargarán")
+        st.subheader(f"Nuevos que se cargarán ({len(nuevas)})")
         tabla(pd.DataFrame(nuevas)[cols])
-    if duplicadas:
-        with st.expander(f"Omitidos porque ya existen ({len(duplicadas)})"):
-            tabla(pd.DataFrame(duplicadas)[cols])
-    if nuevas and st.button(f"Cargar {len(nuevas)} actores", type="primary"):
-        with st.spinner("Cargando…"):
-            store.append(TAB_SOLICITUDES, nuevas)
-            store.append(TAB_HISTORIAL, [_hist(f_["radicado"], f_["lote"], USUARIO["nombre"], "Carga masiva",
-                                               "", f_["estado"], archivo.name) for f_ in nuevas])
+    if actualizaciones:
+        st.subheader(f"Datos que cambiarían en actores existentes ({len(actualizaciones)})")
+        if actualizar:
+            st.caption("Revisa cada cambio antes de guardar. Solo se cambian los datos que vienen llenos en el "
+                       "archivo; una celda vacía no borra nada. El estado y el avance de cada solicitud no cambian.")
+        else:
+            st.caption("No se cambiarán: elige «Actualizar sus datos con los del archivo» si quieres aplicarlos.")
+        tabla(cambios_de_carga(actualizaciones))
+        creados = [a_ for a_ in actualizaciones if a_["estado"] in (E_CREADO, E_PEND_CICLOPE)]
+        if actualizar and creados:
+            st.warning(f"{len(creados)} de estos actores ya están creados en Hermes o Cíclope. La carga cambia los "
+                       "datos en este sistema; en Hermes o Cíclope hay que actualizarlos allá.")
+    if sin_cambios or repetidas:
+        with st.expander(f"Ya existen y no cambian ({len(sin_cambios) + len(repetidas)})"):
+            tabla(pd.DataFrame(sin_cambios + repetidas)[cols])
+
+    n_act = len(actualizaciones) if actualizar else 0
+    if not nuevas and not n_act:
+        st.info("No hay nada para cargar ni actualizar con este archivo.")
+        return
+    partes = ([f"cargar {len(nuevas)} nuevo(s)"] if nuevas else []) + ([f"actualizar {n_act}"] if n_act else [])
+    if st.button(" y ".join(partes).capitalize(), type="primary"):
+        try:
+            with st.spinner("Guardando…"):
+                ts = ahora()
+                if nuevas:
+                    store.append(TAB_SOLICITUDES, nuevas)
+                    store.append(TAB_HISTORIAL, [_hist(f_["radicado"], f_["lote"], USUARIO["nombre"], "Carga masiva",
+                                                       "", f_["estado"], archivo.name) for f_ in nuevas])
+                if n_act:
+                    store.update_many(TAB_SOLICITUDES, "radicado", {
+                        a_["radicado"]: {**{k: v[1] for k, v in a_["cambios"].items()}, "fecha_actualizacion": ts}
+                        for a_ in actualizaciones})
+                    store.append(TAB_HISTORIAL, [_hist(
+                        a_["radicado"], a_["lote"], USUARIO["nombre"], "Actualizado por carga masiva", a_["estado"],
+                        a_["estado"], f"{archivo.name}: " + "; ".join(
+                            f"{CAMPOS_ACTUALIZABLES[k]}: «{v[0] or '—'}» → «{v[1]}»" for k, v in a_["cambios"].items()))
+                        for a_ in actualizaciones])
+        except Exception as e:  # noqa: BLE001
+            refrescar()
+            st.error("No se pudo terminar de guardar porque la hoja de Google no respondió. Vuelve a subir el "
+                     "archivo: lo que ya quedó guardado aparecerá como existente y no se duplica.")
+            with st.expander("Detalle técnico"):
+                st.code(f"{type(e).__name__}: {e}")
+            return
         refrescar()
-        st.success(f"Se cargaron {len(nuevas)} actores en el lote {nuevas[0]['lote']}.")
+        st.success("Listo: " + " y ".join(
+            ([f"se cargaron {len(nuevas)} actores nuevos (lote {nuevas[0]['lote']})"] if nuevas else [])
+            + ([f"se actualizaron {n_act} actores existentes"] if n_act else [])) + ".")
 
 
 def pagina_usuarios():
@@ -1536,6 +1724,15 @@ def pagina_avisos():
         resumen_bandeja(df, ROL_HERMES)
     if ROL_CICLOPE in ROLES_U:
         resumen_bandeja(df, ROL_CICLOPE)
+    if ROL_TI in ROLES_U:
+        pend = df[(df["tipo_identificacion"] == TI_DESIGNADO) & (df["estado"] == E_ITOP)]
+        with st.container(border=True):
+            c1, c2 = st.columns([3, 1])
+            c1.markdown("#### Bandeja de TI")
+            if PAGINAS.get(ROL_TI) is not None:
+                with c2:
+                    st.page_link(PAGINAS[ROL_TI], label="Ir a la Bandeja de TI", icon=":material/arrow_forward:")
+            st.metric("Actores Designado esperando su identificación", len(pend))
     st.markdown("#### Tus avisos")
 
     av = mis_avisos()
@@ -1587,7 +1784,10 @@ if ROL_HERMES in ROLES_U:
 if ROL_CICLOPE in ROLES_U:
     PAGINAS[ROL_CICLOPE] = st.Page(bandeja_ciclope, title="Bandeja de Cíclope", icon=":material/inbox:", url_path="ciclope")
     gestion.append(PAGINAS[ROL_CICLOPE])
-if ROLES_U & {ROL_HERMES, ROL_CICLOPE, ROL_ADMIN}:
+if ROL_TI in ROLES_U:
+    PAGINAS[ROL_TI] = st.Page(pagina_bandeja_ti, title="Bandeja de TI", icon=":material/badge:", url_path="ti")
+    gestion.append(PAGINAS[ROL_TI])
+if ROLES_U & {ROL_HERMES, ROL_CICLOPE, ROL_TI, ROL_ADMIN}:
     gestion.append(st.Page(pagina_consulta, title="Consulta general", icon=":material/table_view:", url_path="consulta"))
 if gestion:
     secciones["Gestión"] = gestion

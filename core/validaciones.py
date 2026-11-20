@@ -68,6 +68,22 @@ def clave_identificacion(tipo: str, ident: str) -> str:
     return d
 
 
+TELEFONO_APC = "6016012424"  # conmutador de APC-Colombia: (+57) 601 601 2424
+RUTAS_INTERNAS = re.compile(r"sharepoint|onedrive|teams\.microsoft|\\\\|[a-z]:\\|intranet|apccolombia\.sharepoint|"
+                            r"orfeo|\.(xlsx?|docx?|pptx?|msg|pst)(\b|$)", re.IGNORECASE)
+
+
+def caracteres_no_validos(v: str, solo_numeros: bool = False) -> bool:
+    """True si el texto trae algo distinto de letras y números (o de números, si solo_numeros)."""
+    t = limpiar_texto(v).replace(" ", "")
+    return bool(t) and bool(re.search(r"[^0-9]" if solo_numeros else r"[^A-Za-z0-9]", t))
+
+
+def fuente_interna(v: str) -> bool:
+    """True si la fuente parece un archivo o una ruta interna (SharePoint, OneDrive, carpetas, Excel…)."""
+    return bool(RUTAS_INTERNAS.search(limpiar_texto(v)))
+
+
 def normalizar_identificacion(tipo: str, v: str) -> str:
     """NIT: solo dígitos. NIE/NIF: sin espacios, puntos ni guiones, en mayúsculas. Designado: vacío."""
     if tipo == TI_DESIGNADO:
@@ -107,7 +123,9 @@ def validar_actor(a: dict) -> list[str]:
     ti = a.get("tipo_identificacion")
     ident = limpiar_texto(a.get("identificacion"))
     if ti != TI_DESIGNADO and not ident:
-        err.append("Falta: Identificación (sin puntos ni guiones).")
+        err.append("Falta: Identificación (sin puntos, guiones ni caracteres especiales).")
+    elif ti != TI_DESIGNADO and not re.fullmatch(r"[A-Za-z0-9]+", ident):
+        err.append("La identificación solo puede tener letras y números, sin puntos, guiones ni caracteres especiales.")
     if ti == TI_NIT and ident:
         e = validar_nit(ident)
         if e:
@@ -128,10 +146,12 @@ def validar_actor(a: dict) -> list[str]:
         err.append("El correo electrónico no tiene un formato válido.")
 
     fijo, movil = solo_digitos(a.get("telefono_fijo")), solo_digitos(a.get("telefono_movil"))
+    sin_tel = (" Si la organización no tiene número de teléfono, escribe el de APC-Colombia: "
+               f"{TELEFONO_APC}.")
     if not fijo:
-        err.append("Falta: Teléfono fijo (solo números).")
+        err.append("Falta: Teléfono fijo (solo números)." + sin_tel)
     if not movil:
-        err.append("Falta: Teléfono móvil (solo números).")
+        err.append("Falta: Teléfono móvil (solo números)." + sin_tel)
     for nombre, raw, dig in (("fijo", a.get("telefono_fijo"), fijo), ("móvil", a.get("telefono_movil"), movil)):
         if raw and dig and not (7 <= len(dig) <= 15):
             err.append(f"El teléfono {nombre} debe tener entre 7 y 15 dígitos.")

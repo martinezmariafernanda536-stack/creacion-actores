@@ -84,12 +84,12 @@ class GSheetStore(BaseStore):
 
     def _worksheet(self, tab):
         if tab not in self._ws:
-            self._ws[tab] = self.sh.worksheet(tab)
+            self._ws[tab] = _reintentar(lambda: self.sh.worksheet(tab))
         return self._ws[tab]
 
     def _header(self, tab):
         if tab not in self._headers:
-            self._headers[tab] = self._worksheet(tab).row_values(1)
+            self._headers[tab] = _reintentar(lambda: self._worksheet(tab).row_values(1))
         return self._headers[tab]
 
     def ensure_tabs(self):
@@ -134,7 +134,7 @@ class GSheetStore(BaseStore):
     def update_many(self, tab, key_col, changes):
         ws = self._worksheet(tab)
         header = self._header(tab)
-        keys = ws.col_values(header.index(key_col) + 1)
+        keys = _reintentar(lambda: ws.col_values(header.index(key_col) + 1))
         cells = []
         for key, upd in changes.items():
             if key not in keys:
@@ -165,12 +165,14 @@ def _s(v) -> str:
 
 
 def _reintentar(fn, intentos=4):
-    """Reintenta ante límites de cuota de la API de Google (error 429)."""
+    """Reintenta ante límites de cuota (429), fallas temporales de Google (5xx) o cortes de conexión."""
+    temporales = ("429", "500", "502", "503", "504", "Connection", "connection", "Timeout", "timed out",
+                  "RemoteDisconnected")
     for i in range(intentos):
         try:
             return fn()
         except Exception as e:  # noqa: BLE001
-            if "429" in str(e) and i < intentos - 1:
+            if any(t in f"{type(e).__name__} {e}" for t in temporales) and i < intentos - 1:
                 time.sleep(2 ** i * 3)
                 continue
             raise
